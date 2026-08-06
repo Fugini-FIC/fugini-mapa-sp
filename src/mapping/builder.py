@@ -1,7 +1,7 @@
 # ============================================================
 # src/mapping/builder.py
-# Gera o mapa Folium para São Carlos e Região.
-# Área única — sem K-Means, sem múltiplas áreas.
+# Gera os mapas Folium para São Paulo e Região.
+# 4 vendedores (SP01-SP04) + 1 master, cada um com sua carteira.
 #
 # Cores por status de compra:
 #   verde   (#27ae60) — ativo (comprou nos últimos 60 dias)
@@ -16,7 +16,7 @@ import folium
 import folium.plugins
 from pathlib import Path
 
-from config.settings import USUARIOS_MAPA, COR_AREA, NOME_REGIAO
+from config.settings import USUARIOS_MAPA, USUARIO_PARA_COD_VENDEDOR, COR_AREA, NOME_REGIAO, CRM_BASE_URL
 from src.mapping.crypto      import criptografar_html
 from src.mapping.roteamento  import gerar_roteamento_html
 
@@ -259,7 +259,7 @@ def _botao_exportar_html() -> str:
           XLSX.utils.book_append_sheet(wb, ws, nomeAba);
         });
         var total = Object.values(porCaso).reduce(function(s, arr) { return s + arr.length; }, 0);
-        XLSX.writeFile(wb, 'clientes_sao_carlos.xlsx');
+        XLSX.writeFile(wb, 'clientes_sao_paulo.xlsx');
         status.textContent = '✅ ' + total + ' clientes exportados.';
       }
       if (typeof XLSX === 'undefined') {
@@ -273,8 +273,43 @@ def _botao_exportar_html() -> str:
     """
 
 
+def _df_credito_sem_duplicata_matriz(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    CORREÇÃO ESPECÍFICA SP: o ERP replica o limite_disp da matriz em
+    cada filial (mesmo CNPJ raiz, mesmo valor de crédito). Somar isso
+    direto infla o total exibido no Heatmap de Crédito artificialmente
+    (~4.7x no caso da carteira SP). Esta função deduplica por CNPJ raiz
+    SOMENTE quando o limite_disp é idêntico entre as filiais — preserva
+    casos onde cada filial tem limite genuinamente diferente.
+
+    Usada apenas para os cálculos de soma_cred/heat_data — não afeta
+    os marcadores individuais no mapa (cada cliente continua sendo
+    plotado normalmente).
+    """
+    if "cnpj" not in df.columns:
+        return df
+
+    df = df.copy()
+    df["_cnpj_raiz"] = df["cnpj"].astype(str).str.zfill(14).str[:8]
+
+    # Para cada raiz, mantém só 1 linha SE todas as filiais tiverem o
+    # mesmo limite_disp (sintoma de duplicação). Se os valores variarem
+    # de verdade entre filiais, mantém todas as linhas.
+    valores_por_raiz = df.groupby("_cnpj_raiz")["limite_disp"].nunique()
+    raizes_duplicadas = valores_por_raiz[valores_por_raiz == 1].index
+
+    mask_duplicada = df["_cnpj_raiz"].isin(raizes_duplicadas) & (df["_cnpj_raiz"] != "00000000")
+    df_dedup = pd.concat([
+        df[~mask_duplicada],
+        df[mask_duplicada].drop_duplicates(subset="_cnpj_raiz", keep="first"),
+    ])
+
+    return df_dedup.drop(columns=["_cnpj_raiz"])
+
+
 def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
-                df_roteamento: pd.DataFrame | None = None, perfil: str = "master") -> folium.Map:
+                df_roteamento: pd.DataFrame | None = None, perfil: str = "master",
+                cod_vendedor: str | None = None, mapa_senha: str | None = None) -> folium.Map:
     """
     perfil='vendedor' → painel mostra carteira completa (todos os status visíveis)
     perfil='master'   → painel mostra tudo separado por status
@@ -284,7 +319,7 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
     if df_roteamento is None:
         df_roteamento = df[df["tipo_cliente"] == "disponivel"] if "tipo_cliente" in df.columns else df
 
-    mapa = folium.Map(location=[-21.994, -47.890], zoom_start=10, tiles="CartoDB positron")
+    mapa = folium.Map(location=[-23.55, -46.63], zoom_start=10, tiles="CartoDB positron")
 
     mapa.get_root().html.add_child(folium.Element(
         """<style>
@@ -297,11 +332,9 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
     contagens = {}
 
     # ── Clientes com representante ──────────────────────────────────────────
-    # FIX: perfil vendedor mostra TODOS os status por padrão (carteira completa)
     for status in ["ativo", "inativo", "nunca_comprou"]:
         label = LABEL_STATUS[status]
         show_default = (perfil == "vendedor") or (perfil == "master" and False)
-        # Master: nenhum marcado por padrão; Vendedor: todos marcados
         if perfil == "master":
             show_default = False
         fg = folium.FeatureGroup(name=label, show=show_default)
@@ -323,6 +356,8 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
             rep      = _safe_str(row.get("representante"), "-")
             cor      = COR_STATUS[status]
             nome_encoded = urllib.parse.quote(nome)
+            cod_vendedor_encoded = urllib.parse.quote(cod_vendedor or "")
+            mapa_senha_encoded   = urllib.parse.quote(mapa_senha or "")
             popup_html = f"""
             <div style="font-family:Arial;font-size:12px;min-width:180px">
                 <b>{nome}</b><br>
@@ -333,11 +368,18 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
                 <span style="color:#666">Última NF: {ult_nf}</span><br>
                 <span style="color:#666">Sem comprar: {dias_str}</span><br>
                 <span style="color:#666">Faturamento total: {fat_fmt}</span><br>
-                <a href="checkin.html?cod_cliente={cod}&nome_cliente={nome_encoded}"
+                <a href="checkin.html?cod_cliente={cod}&nome_cliente={nome_encoded}&cod_vendedor={cod_vendedor_encoded}&mapa_senha={mapa_senha_encoded}"
                    style="display:inline-block;margin-top:8px;padding:5px 10px;
                           background:#D2001B;color:white;border-radius:5px;
                           font-size:11px;font-weight:700;text-decoration:none;">
                   📍 Check-in
+                </a>
+                <a href="{CRM_BASE_URL}/agenda?cod_cliente={cod}&nome_cliente={nome_encoded}"
+                   target="_blank" rel="noopener"
+                   style="display:inline-block;margin-top:8px;margin-left:4px;padding:5px 10px;
+                          background:#fff;color:#1a1a2e;border:1px solid #ccc;border-radius:5px;
+                          font-size:11px;font-weight:700;text-decoration:none;">
+                  📅 Agendar
                 </a>
             </div>"""
             folium.CircleMarker(
@@ -365,6 +407,8 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
         credito = _safe_float(row.get("limite_disp"))
         cor     = COR_STATUS["disponivel"]
         nome_encoded = urllib.parse.quote(nome)
+        cod_vendedor_encoded = urllib.parse.quote(cod_vendedor or "")
+        mapa_senha_encoded   = urllib.parse.quote(mapa_senha or "")
         popup_html = f"""
         <div style="font-family:Arial;font-size:12px;min-width:180px">
             <b>{nome}</b><br>
@@ -372,11 +416,18 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
             <span style="color:#666">Cód: {cod}</span><br>
             <span style="color:#666">{cidade}</span><br>
             <span style="color:#666">Crédito disp.: R$ {credito:,.2f}</span><br>
-            <a href="checkin.html?cod_cliente={cod}&nome_cliente={nome_encoded}"
+            <a href="checkin.html?cod_cliente={cod}&nome_cliente={nome_encoded}&cod_vendedor={cod_vendedor_encoded}&mapa_senha={mapa_senha_encoded}"
                style="display:inline-block;margin-top:8px;padding:5px 10px;
                       background:#D2001B;color:white;border-radius:5px;
                       font-size:11px;font-weight:700;text-decoration:none;">
               📍 Check-in
+            </a>
+            <a href="{CRM_BASE_URL}/agenda?cod_cliente={cod}&nome_cliente={nome_encoded}"
+               target="_blank" rel="noopener"
+               style="display:inline-block;margin-top:8px;margin-left:4px;padding:5px 10px;
+                      background:#fff;color:#1a1a2e;border:1px solid #ccc;border-radius:5px;
+                      font-size:11px;font-weight:700;text-decoration:none;">
+              📅 Agendar
             </a>
         </div>"""
         folium.CircleMarker(
@@ -391,10 +442,13 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
     contagens["disponivel"] = count_disp
 
     # ── Heatmap ─────────────────────────────────────────────────────────────
+    # Usa df deduplicado por CNPJ raiz para não inflar o crédito agregado
+    # quando o mesmo limite está replicado entre filiais da mesma matriz.
+    df_credito = _df_credito_sem_duplicata_matriz(df)
     fg_heat = folium.FeatureGroup(name="Heatmap Crédito", show=False)
     heat_data = [
         [float(row["lat_final"]), float(row["lng_final"]), float(row["limite_disp"])]
-        for _, row in df.iterrows()
+        for _, row in df_credito.iterrows()
         if pd.notna(row.get("lat_final")) and pd.notna(row.get("lng_final"))
         and pd.notna(row.get("limite_disp")) and float(row.get("limite_disp", 0)) > 0
         and row.get("geo_valida_final", True)
@@ -435,17 +489,15 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
 
     # ── Painel lateral ───────────────────────────────────────────────────────
     export_data_js = _build_export_data(df, df_prospects)
-    soma_cred      = df["limite_disp"].fillna(0).sum()
+    soma_cred      = df_credito["limite_disp"].fillna(0).sum()
     cred_fmt       = f"R$ {soma_cred/1_000:.0f}K" if soma_cred >= 1_000 else f"R$ {soma_cred:,.0f}"
     total_com_dono = contagens.get("ativo", 0) + contagens.get("inativo", 0) + contagens.get("nunca_comprou", 0)
     n_disp         = contagens.get("disponivel", 0)
     cor_disp       = COR_STATUS["disponivel"]
     label_disp     = LABEL_STATUS["disponivel"]
 
-    # FIX: perfil vendedor — checkbox único "Carteira" que liga/desliga todos os status
     com_dono_html = ""
     if perfil == "vendedor":
-        # FIX: usar total_com_dono em vez de só nunca_comprou
         n = total_com_dono
         com_dono_html = f"""
       <div style="font-size:11px;font-weight:700;color:#444;margin-bottom:6px;">
@@ -482,7 +534,6 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
       {linhas}
       <div style="border-top:1px solid #eee;margin-top:8px;padding-top:8px;"></div>"""
 
-    # Prospects
     prospects_html = ""
     if df_prospects is not None and not df_prospects.empty:
         cnaes = (
@@ -530,74 +581,8 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
 
     botao_exportar = _botao_exportar_html()
 
-    painel_html = f"""
-    <div id="painel-resumo" style="
-        position: fixed; top: 54px; left: 10px; z-index: 1000;
-        background: rgba(255,255,255,0.97); border-radius: 10px;
-        padding: 14px 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.15);
-        min-width: 210px; max-width: 250px;
-        font-family: 'Segoe UI', Arial, sans-serif;
-        border-left: 4px solid #e74c3c;
-        max-height: calc(90vh - 54px); overflow-y: auto;
-    ">
-      <div style="font-size:12px;font-weight:700;color:#e74c3c;margin-bottom:10px;">
-        📊 {NOME_REGIAO.upper()}
-      </div>
+    navbar_html, conteudo_roteiro_html = gerar_roteamento_html(df_roteamento, df_prospects, cod_vendedor=cod_vendedor)
 
-      {com_dono_html}
-
-      <div style="font-size:11px;font-weight:700;color:#2980b9;margin-bottom:6px;">
-        🔵 DISPONÍVEIS ({n_disp})
-      </div>
-      <label style="display:flex;align-items:center;cursor:pointer;gap:6px;margin-bottom:5px;">
-        <input type="checkbox" checked
-               onchange="toggleLayer('{label_disp}', this.checked)"
-               style="width:13px;height:13px;cursor:pointer;accent-color:{cor_disp['border']};">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;
-                     background:{cor_disp['fill']};border:1.5px solid {cor_disp['border']};flex-shrink:0;"></span>
-        <span style="font-size:11px;color:#333;">Sem representante <b>({n_disp})</b></span>
-      </label>
-
-      <div style="border-top:1px solid #eee;margin-top:8px;padding-top:8px;">
-        <label style="display:flex;align-items:center;cursor:pointer;gap:6px;">
-          <input type="checkbox"
-                 onchange="toggleLayer('Heatmap Crédito', this.checked)"
-                 style="width:13px;height:13px;cursor:pointer;">
-          <span style="font-size:11px;color:#555;">🔥 Heatmap Crédito</span>
-        </label>
-        <div style="padding-left:20px;font-size:10px;color:#888;margin-top:2px;">
-          {cred_fmt} disponível
-        </div>
-      </div>
-
-      {prospects_html}
-
-      {botao_exportar}
-    </div>
-
-    <script>
-    window.CLIENTES_EXPORT = {export_data_js};
-
-    function toggleLayer(layerName, visible) {{
-      var labels = document.querySelectorAll('.leaflet-control-layers-overlays label');
-      labels.forEach(function(label) {{
-        if (label.textContent.trim() === layerName) {{
-          var checkbox = label.querySelector('input');
-          if (checkbox && checkbox.checked !== visible) checkbox.click();
-        }}
-      }});
-    }}
-
-    // FIX: toggle todos os status da carteira de uma vez
-    function toggleCarteira(visible) {{
-      var camadas = ['{LABEL_STATUS["ativo"]}', '{LABEL_STATUS["inativo"]}', '{LABEL_STATUS["nunca_comprou"]}'];
-      camadas.forEach(function(nome) {{ toggleLayer(nome, visible); }});
-    }}
-    </script>"""
-
-    navbar_html, conteudo_roteiro_html = gerar_roteamento_html(df_roteamento, df_prospects)
-
-    # Seção disponíveis no painel de abas — só aparece no master
     if perfil == "master":
         disp_html = f"""
         <div style="font-size:11px;font-weight:700;color:#2980b9;margin-bottom:6px;">
@@ -614,7 +599,6 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
     else:
         disp_html = ""
 
-    # Painel unificado com abas (Filtros | Roteiro)
     painel_abas_html = f"""
     <div id="painel-unificado" style="
         position: fixed; top: 54px; left: 10px; z-index: 1000;
@@ -626,7 +610,6 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
         display: flex; flex-direction: column;
         transition: width 0.2s;
     ">
-      <!-- Abas + botão colapsar -->
       <div style="display:flex;border-bottom:1px solid #eee;border-radius:10px 10px 0 0;overflow:hidden;">
         <button id="aba-filtros" onclick="trocarAba('filtros')" style="
             flex:1;padding:9px 0;font-size:11px;font-weight:700;border:none;cursor:pointer;
@@ -645,7 +628,6 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
         </button>
       </div>
 
-      <!-- Conteúdo Filtros -->
       <div id="conteudo-filtros" style="padding:14px 16px;overflow-y:auto;max-height:calc(90vh - 110px);">
         <div style="font-size:12px;font-weight:700;color:#e74c3c;margin-bottom:10px;">
           📊 {NOME_REGIAO.upper()}
@@ -667,7 +649,6 @@ def montar_mapa(df: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
         {botao_exportar}
       </div>
 
-      <!-- Conteúdo Roteiro -->
       <div id="conteudo-roteiro" style="padding:14px 16px;overflow-y:auto;max-height:calc(90vh - 110px);display:none;">
         {conteudo_roteiro_html}
       </div>
@@ -764,6 +745,14 @@ def _salvar_html(mapa: folium.Map, path_raw: Path, path_out: Path, senha: str | 
 
 
 def exportar_mapas(df: pd.DataFrame, criptografar: bool = True, df_prospects: pd.DataFrame | None = None) -> dict:
+    """
+    Gera e salva os HTMLs em data/output/.
+
+    Cada chave de USUARIOS_MAPA que aparecer em USUARIO_PARA_COD_VENDEDOR
+    recebe perfil='vendedor' e o df FILTRADO pelo cod_vendedor correspondente.
+    Qualquer chave que NÃO aparecer em USUARIO_PARA_COD_VENDEDOR (ex: "master_sp")
+    recebe perfil='master' e vê a carteira completa, sem filtro.
+    """
     arquivos = {}
     df_disponiveis = df[df["tipo_cliente"] == "disponivel"].copy() if "tipo_cliente" in df.columns else df.copy()
 
@@ -771,14 +760,45 @@ def exportar_mapas(df: pd.DataFrame, criptografar: bool = True, df_prospects: pd
         arquivo = dados["arquivo"]
         senha   = dados["senha"]
         slug    = arquivo.replace(".html", "")
-        perfil  = "vendedor" if usuario == "vendedor_sc" else "master"
 
-        df_mapa = df
+        cod_vendedor = USUARIO_PARA_COD_VENDEDOR.get(usuario)
+        perfil = "vendedor" if cod_vendedor else "master"
 
-        logger.info(f"Gerando {arquivo} (perfil={perfil})...")
-        df_rot = df_disponiveis if perfil == "master" else df_mapa
-        mapa = montar_mapa(df_mapa, df_prospects=df_prospects,
-                           df_roteamento=df_rot, perfil=perfil)
+        if perfil == "vendedor":
+            df_mapa = df[df["cod_vendedor"] == cod_vendedor].copy()
+            if df_mapa.empty:
+                logger.warning(
+                    f"  ATENÇÃO: {usuario} (cod_vendedor={cod_vendedor}) gerou "
+                    f"DataFrame VAZIO. Verifique USUARIO_PARA_COD_VENDEDOR ou a carteira."
+                )
+            df_rot = df_mapa
+        else:
+            df_mapa = df
+            df_rot  = df_disponiveis if not df_disponiveis.empty else df
+
+        logger.info(
+            f"Gerando {arquivo} (perfil={perfil}"
+            f"{f', cod_vendedor={cod_vendedor}' if cod_vendedor else ''}"
+            f") — {len(df_mapa):,} clientes no mapa..."
+        )
+
+        # cod_vendedor para o link de checkin: usa o mapeado, ou "MASTER_SP"
+        # como identificador quando o perfil é master (sem entrada em
+        # USUARIO_PARA_COD_VENDEDOR). Isso permite ao checkin.ts validar
+        # a senha do mapa mesmo para o perfil master.
+        cod_vendedor_checkin = cod_vendedor or "MASTER_SP"
+
+        # Prospects: cada vendedor só vê os prospects atribuídos ao seu
+        # território (coluna cod_vendedor calculada por
+        # prospect_ownership.py, com base no centroide da carteira
+        # atual). Master vê todos, sem filtro — visão consolidada.
+        if perfil == "vendedor" and df_prospects is not None and "cod_vendedor" in df_prospects.columns:
+            df_prospects_mapa = df_prospects[df_prospects["cod_vendedor"] == cod_vendedor].copy()
+        else:
+            df_prospects_mapa = df_prospects
+
+        mapa = montar_mapa(df_mapa, df_prospects=df_prospects_mapa, df_roteamento=df_rot, perfil=perfil,
+                           cod_vendedor=cod_vendedor_checkin, mapa_senha=senha)
         _salvar_html(mapa, OUTPUT_DIR / f"_{slug}_raw.html", OUTPUT_DIR / arquivo, senha, criptografar)
         arquivos[usuario] = OUTPUT_DIR / arquivo
         logger.info(f"✅ {arquivo}")
