@@ -275,16 +275,17 @@ def _botao_exportar_html() -> str:
 
 def _df_credito_sem_duplicata_matriz(df: pd.DataFrame) -> pd.DataFrame:
     """
-    CORREÇÃO ESPECÍFICA SP: o ERP replica o limite_disp da matriz em
-    cada filial (mesmo CNPJ raiz, mesmo valor de crédito). Somar isso
-    direto infla o total exibido no Heatmap de Crédito artificialmente
-    (~4.7x no caso da carteira SP). Esta função deduplica por CNPJ raiz
-    SOMENTE quando o limite_disp é idêntico entre as filiais — preserva
-    casos onde cada filial tem limite genuinamente diferente.
+    O ERP replica o limite_disp da matriz em cada filial (mesmo CNPJ raiz,
+    mesmo valor de crédito) — característica geral da tabela de clientes,
+    NÃO específica de SP: medido em 06/08/2026, São Carlos inflava 2,76x e
+    as carteiras SP entre 1,00x e 3,06x. Somar direto infla o total do
+    Heatmap de Crédito. Esta função deduplica por CNPJ raiz SOMENTE quando
+    o limite_disp é idêntico entre as filiais — preserva casos onde cada
+    filial tem limite genuinamente diferente.
 
     Usada apenas para os cálculos de soma_cred/heat_data — não afeta
     os marcadores individuais no mapa (cada cliente continua sendo
-    plotado normalmente).
+    plotado normalmente). Mesma função existe no Projeto_19 (SC).
     """
     if "cnpj" not in df.columns:
         return df
