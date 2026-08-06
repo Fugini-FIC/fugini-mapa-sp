@@ -1,18 +1,27 @@
 # ============================================================
 # src/ingestion/loader.py
-# Carrega clientes da região de São Carlos diretamente do
-# totvs_cliente.csv (\\192.168.0.226\pdi\in\full\).
+# Carrega clientes da carteira de São Paulo diretamente do
+# totvs_cliente.csv (\\192.168.0.226\pdi\in\full\), mesmo padrão
+# usado no Projeto_19 (São Carlos) para o Jhony (cod-erc=6003).
 #
-# Dois grupos de clientes:
-#   1. DISPONÍVEIS — sem dono (NomERC vazio ou DISPONIVEL - FS), status Ativo
-#   2. COM DONO — carteira do vendedor SC (cod-erc = 6003), status Ativo
+# Cada vendedor de SP tem seu próprio cod-erc:
+#   SP01 (Joao)   -> cod-erc 6007
+#   SP02 (Robson) -> cod-erc 6005
+#   SP03 (Simone) -> cod-erc 6004
+#   SP04 (Wesley) -> cod-erc 6006
 #
-# O campo `tipo_cliente` distingue os dois grupos no mapa.
+# Substitui a versão anterior que lia CARTEIRA_VD_SP.xlsx — essa
+# mudança elimina os problemas de corrupção de coordenada e CEP
+# que existiam no Excel, já que agora lemos direto da fonte
+# confiável (TOTVS), igual ao fluxo do SC.
+#
+# Não existe conceito de "disponível" (sem dono) em SP — todo
+# cliente filtrado por um dos 4 cod-erc já pertence a um vendedor.
 # ============================================================
 
 import logging
 import pandas as pd
-from config.settings import TOTVS_CLIENTE_CSV, IBGE_ALVO, IBGE_CIDADE
+from config.settings import TOTVS_CLIENTE_CSV, IBGE_CIDADE
 
 logger = logging.getLogger(__name__)
 
@@ -31,14 +40,17 @@ MAPEAMENTO = {
     "NomERC":        "representante",
 }
 
-# NomERC que indicam cliente disponível (sem representante de campo)
-NOMERC_VALIDOS = {"DISPONIVEL - FS", ""}
-
 # NomERC que indicam categorias internas do TOTVS — excluir do mapa
+# (mesmo critério usado no SC)
 NOMERC_EXCLUIDOS = {"EXPORTAÇÃO", "CLIENTE PLATAFORMA"}
 
-# cod-erc que define a carteira do vendedor SC (Johnny)
-COD_ERC_SC = "6003"
+# cod-erc de cada vendedor de SP no TOTVS
+COD_ERC_SP = {
+    "6007": "SP01",  # Joao
+    "6005": "SP02",  # Robson
+    "6004": "SP03",  # Simone
+    "6006": "SP04",  # Wesley
+}
 
 
 def _normalizar(df: pd.DataFrame) -> pd.DataFrame:
@@ -55,36 +67,39 @@ def _normalizar(df: pd.DataFrame) -> pd.DataFrame:
 
 def carregar_clientes() -> pd.DataFrame:
     """
-    Retorna DataFrame com dois grupos de clientes:
-    - tipo_cliente = 'disponivel'  → sem dono, NomERC vazio ou DISPONIVEL - FS
-    - tipo_cliente = 'sem_compra'  → carteira do vendedor SC (cod-erc = 6003)
+    Retorna DataFrame com a carteira completa de São Paulo (4 vendedores),
+    filtrada diretamente por cod-erc no TOTVS — mesmo padrão do SC.
+
+    Sem restrição de IBGE — o cod-erc já define a carteira correta,
+    igual ao comentário original do loader.py do SC.
     """
     logger.info(f"Lendo CSV: {TOTVS_CLIENTE_CSV}")
     df_raw = pd.read_csv(TOTVS_CLIENTE_CSV, encoding="latin1", sep=";", dtype=str)
     logger.info(f"  {len(df_raw):,} clientes no CSV total.")
 
-    ibge_str       = {str(i) for i in IBGE_ALVO}
-    mask_ibge      = df_raw["cod-ibge"].str.strip().isin(ibge_str)
     mask_ativo     = df_raw["status-cliente"].str.strip() == "Ativo"
-    mask_nomerc    = df_raw["NomERC"].fillna("").str.strip().isin(NOMERC_VALIDOS)
     mask_excluidos = df_raw["NomERC"].fillna("").str.strip().isin(NOMERC_EXCLUIDOS)
-    mask_erc_sc    = df_raw["cod-erc"].fillna("").str.strip() == COD_ERC_SC
+    cod_erc_limpo  = df_raw["cod-erc"].fillna("").str.strip()
+    mask_erc_sp    = cod_erc_limpo.isin(COD_ERC_SP.keys())
 
-    # Grupo 1 — Disponíveis (sem dono) — só loga os códigos, não vai pro mapa
-    df_disp = df_raw[mask_ibge & mask_ativo & mask_nomerc].copy()
-    df_disp = _normalizar(df_disp)
-    cods_disp = sorted(df_disp["cod_cliente"].tolist())
-    logger.info(f"  Disponíveis ({len(cods_disp)}): {cods_disp}")
+    df_todos = df_raw[mask_ativo & mask_erc_sp & ~mask_excluidos].copy()
+    df_todos = _normalizar(df_todos)
 
-    # Grupo 2 — Carteira do vendedor SC (cod-erc = 6003)
-    # Sem restrição de IBGE — o cod-erc já define a carteira correta
-    df_todos  = df_raw[mask_ativo & mask_erc_sc & ~mask_excluidos].copy()
-    df_todos  = _normalizar(df_todos)
-    df_todos["tipo_cliente"] = "sem_compra"
-    df_todos["fonte"]        = "sao_carlos"
-    logger.info(f"  Carteira vendedor SC (cod-erc=6003): {len(df_todos):,}")
+    # Mapeia cod-erc -> cod_vendedor (precisa ser feito ANTES do _normalizar
+    # renomear as colunas, então recupera do df_raw filtrado na mesma ordem)
+    cod_erc_filtrado = cod_erc_limpo[mask_ativo & mask_erc_sp & ~mask_excluidos]
+    df_todos["cod_vendedor"] = cod_erc_filtrado.map(COD_ERC_SP).values
 
-    colunas  = [c for c in MAPEAMENTO.values() if c in df_todos.columns] + ["cidade", "tipo_cliente", "fonte"]
+    df_todos["tipo_cliente"] = "carteira"
+    df_todos["fonte"]        = "sao_paulo"
+
+    for vendedor, qtd in df_todos["cod_vendedor"].value_counts().sort_index().items():
+        logger.info(f"  {vendedor}: {qtd:,} clientes")
+
+    colunas = (
+        [c for c in MAPEAMENTO.values() if c in df_todos.columns]
+        + ["cidade", "cod_vendedor", "tipo_cliente", "fonte"]
+    )
     df = df_todos[[c for c in colunas if c in df_todos.columns]].copy()
     df = df.drop_duplicates(subset="cod_cliente", keep="first")
     logger.info(f"  Total carregado: {len(df):,} clientes")

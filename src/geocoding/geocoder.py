@@ -24,13 +24,16 @@ from src.database.connection import get_connection
 
 logger = logging.getLogger(__name__)
 
-# Bounding box da regiao de Sao Carlos e entorno
+# Bounding box da Grande São Paulo (RMSP)
 # Clientes com coordenada TOTVS fora dessa area sao tratados como invalidos
 # e regeocidificados pelo Google Maps API
-REGIAO_LAT_MIN = -22.6
-REGIAO_LAT_MAX = -21.4
-REGIAO_LNG_MIN = -49.2
-REGIAO_LNG_MAX = -47.4
+# Margem de seguranca para nao cortar cliente de borda dos municipios validados
+# (cobre de Vargem Grande Paulista/oeste ate Suzano-Mogi/leste,
+#  Mairipora/norte ate Sao Lourenco da Serra/sul)
+REGIAO_LAT_MIN = -24.3
+REGIAO_LAT_MAX = -22.9
+REGIAO_LNG_MIN = -47.3
+REGIAO_LNG_MAX = -45.8
 
 
 def coordenada_valida(lat, lng) -> bool:
@@ -47,7 +50,7 @@ def coordenada_valida(lat, lng) -> bool:
 
 
 def coordenada_na_regiao(lat, lng) -> bool:
-    """Verifica se a coordenada está dentro do bounding box da região de São Carlos."""
+    """Verifica se a coordenada está dentro do bounding box da região de São Paulo."""
     try:
         lat, lng = float(lat), float(lng)
         return (
@@ -182,7 +185,7 @@ def processar_cliente(row: dict) -> dict:
 def geocodificar(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
-    # Valida coordenadas do TOTVS — só aceita se estiver na região de São Carlos
+    # Valida coordenadas do TOTVS — só aceita se estiver na região de São Paulo
     df["geo_valida_totvs"] = df.apply(
         lambda r: coordenada_valida(r.get("lat_totvs"), r.get("lng_totvs"))
                   and coordenada_na_regiao(r.get("lat_totvs"), r.get("lng_totvs")),

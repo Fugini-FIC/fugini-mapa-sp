@@ -89,12 +89,21 @@ def _build_prospect_dict(row) -> dict:
     }
 
 
-def gerar_roteamento_html(df_area: pd.DataFrame, df_prospects: pd.DataFrame | None = None) -> tuple[str, str]:
+def gerar_roteamento_html(df_area: pd.DataFrame, df_prospects: pd.DataFrame | None = None,
+                           cod_vendedor: str = "") -> tuple[str, str]:
     """
     Retorna (navbar_html, conteudo_roteiro_html).
     - navbar_html: barra superior fixa com logo e links
     - conteudo_roteiro_html: HTML interno do painel de roteiro (sem container externo),
       para ser injetado pelo builder.py como aba do painel unificado
+    - cod_vendedor: identificador do dono deste mapa específico (ex: "SP01",
+      "SC01", ou "MASTER_SP"/"MASTER_SC" para os mapas master). Definido em
+      tempo de geração pelo builder.py — NÃO é editável pelo usuário no
+      navegador. Antes desse parâmetro existia um campo de texto livre
+      ("Seu cód. vendedor") que qualquer pessoa podia preencher com
+      qualquer código, inclusive de OUTRO vendedor/região, permitindo
+      criar e agendar roteiros na carteira alheia. Isso foi removido:
+      o valor agora vem embutido no HTML gerado, um por vendedor.
     """
     clientes_js = json.dumps([
         _build_cliente_dict(row)
@@ -110,6 +119,8 @@ def gerar_roteamento_html(df_area: pd.DataFrame, df_prospects: pd.DataFrame | No
         ], ensure_ascii=False)
     else:
         prospects_js = "[]"
+
+    cod_vendedor_js = json.dumps(cod_vendedor or "")
 
     navbar_html = """
     <!-- NAV SUPERIOR -->
@@ -152,9 +163,12 @@ def gerar_roteamento_html(df_area: pd.DataFrame, df_prospects: pd.DataFrame | No
         🗺️ ROTEIRO
       </div>
 
-      <input id="rota-cod-vendedor" type="text" placeholder="Seu cód. vendedor (ex: V001)"
-             style="width:100%;padding:6px 8px;border:1.5px solid #ddd;border-radius:6px;
-                    font-size:11px;margin-bottom:6px;box-sizing:border-box;outline:none;">
+      <div style="width:100%;padding:6px 8px;border:1.5px solid #eee;border-radius:6px;
+                  font-size:11px;margin-bottom:6px;box-sizing:border-box;background:#f9f9f9;
+                  color:#555;display:flex;justify-content:space-between;align-items:center;">
+        <span>Vendedor</span>
+        <span id="rota-cod-vendedor-display" style="font-weight:700;color:#1a1a2e;"></span>
+      </div>
 
       <input id="endereco-partida" type="text" placeholder="Seu endereço de partida"
              style="width:100%;padding:6px 8px;border:1.5px solid #ddd;border-radius:6px;
@@ -232,14 +246,18 @@ def gerar_roteamento_html(df_area: pd.DataFrame, df_prospects: pd.DataFrame | No
     <script>
     var CLIENTES = """ + clientes_js + """;
     var PROSPECTS = """ + prospects_js + """;
+    // Cód. do vendedor dono deste mapa — definido em tempo de geração do
+    // HTML (builder.py), não editável pelo usuário. Ver docstring de
+    // gerar_roteamento_html() para o histórico de por que isso mudou.
+    var COD_VENDEDOR_FIXO = """ + cod_vendedor_js + """;
     var CORES_DIAS = ['#e74c3c','#2980b9','#27ae60','#8e44ad','#f39c12','#16a085','#c0392b'];
     var rotaLayers = [];
     var layersPorDia = {};
     var API_AGENDAMENTOS = 'https://fugini-checkin-api.vercel.app/api/agendamentos';
 
     (function() {
-      var salvo = localStorage.getItem('cod_vendedor');
-      if (salvo) document.getElementById('rota-cod-vendedor').value = salvo;
+      var display = document.getElementById('rota-cod-vendedor-display');
+      if (display) display.textContent = COD_VENDEDOR_FIXO || '—';
       var hoje = new Date().toISOString().split('T')[0];
       document.getElementById('rota-data-inicio').value = hoje;
       atualizarSomaDia();
@@ -503,8 +521,7 @@ def gerar_roteamento_html(df_area: pd.DataFrame, df_prospects: pd.DataFrame | No
     }
 
     async function incluirDiaNaAgenda(idxDia) {
-      var codVendedor = document.getElementById('rota-cod-vendedor').value.trim().toUpperCase();
-      if (!codVendedor) { alert('Digite seu código de vendedor antes de agendar.'); return; }
+      if (!COD_VENDEDOR_FIXO) { alert('Este mapa não tem um vendedor definido. Contate o suporte.'); return; }
       var dataVisita = getDataDia(idxDia);
       if (!dataVisita) { alert('Selecione a data de início do roteiro.'); return; }
 
@@ -514,7 +531,7 @@ def gerar_roteamento_html(df_area: pd.DataFrame, df_prospects: pd.DataFrame | No
 
       var ok = 0, skipped = 0, erro = 0;
       for (var i = 0; i < dia.length; i++) {
-        var resultado = await agendarCliente(dia[i], dataVisita, codVendedor, i + 1);
+        var resultado = await agendarCliente(dia[i], dataVisita, COD_VENDEDOR_FIXO, i + 1);
         if (resultado === 'ok')           ok++;
         else if (resultado === 'skipped') skipped++;
         else                              erro++;
@@ -524,12 +541,10 @@ def gerar_roteamento_html(df_area: pd.DataFrame, df_prospects: pd.DataFrame | No
       if (skipped > 0) msg += ' · ' + skipped + ' já registrados';
       if (erro > 0)    msg += ' · ' + erro + ' erros';
       status.innerHTML = msg;
-      localStorage.setItem('cod_vendedor', codVendedor);
     }
 
     async function incluirTodosNaAgenda() {
-      var codVendedor = document.getElementById('rota-cod-vendedor').value.trim().toUpperCase();
-      if (!codVendedor) { alert('Digite seu código de vendedor antes de agendar.'); return; }
+      if (!COD_VENDEDOR_FIXO) { alert('Este mapa não tem um vendedor definido. Contate o suporte.'); return; }
       var dataInicio = document.getElementById('rota-data-inicio').value;
       if (!dataInicio) { alert('Selecione a data de início do roteiro.'); return; }
 
@@ -541,7 +556,7 @@ def gerar_roteamento_html(df_area: pd.DataFrame, df_prospects: pd.DataFrame | No
         var dataVisita = getDataDia(idx);
         status.innerHTML = '⏳ Agendando dia ' + (idx+1) + '/' + dias.length + '...';
         for (var i = 0; i < dias[idx].length; i++) {
-          var resultado = await agendarCliente(dias[idx][i], dataVisita, codVendedor, i + 1);
+          var resultado = await agendarCliente(dias[idx][i], dataVisita, COD_VENDEDOR_FIXO, i + 1);
           if (resultado === 'ok')           totalOk++;
           else if (resultado === 'skipped') totalSkipped++;
           else                              totalErro++;
@@ -552,7 +567,6 @@ def gerar_roteamento_html(df_area: pd.DataFrame, df_prospects: pd.DataFrame | No
       if (totalSkipped > 0) msg += ' · ' + totalSkipped + ' já registrados';
       if (totalErro > 0)    msg += ' · ' + totalErro + ' erros';
       status.innerHTML = msg;
-      localStorage.setItem('cod_vendedor', codVendedor);
     }
 
     function exibirRoteiro(dias, distTotal) {
@@ -614,7 +628,7 @@ def gerar_roteamento_html(df_area: pd.DataFrame, df_prospects: pd.DataFrame | No
       var resultado = document.getElementById('rota-resultado');
       var nCli = parseInt(document.getElementById('rota-n-clientes').value) || 0;
       var nPro = parseInt(document.getElementById('rota-n-prospects').value) || 0;
-      var codVendedor = document.getElementById('rota-cod-vendedor').value.trim().toUpperCase();
+      var codVendedor = COD_VENDEDOR_FIXO;
 
       if (!endereco) { status.innerHTML = '⚠️ Digite um endereço.'; return; }
       if (nCli === 0 && nPro === 0) { status.innerHTML = '⚠️ Defina ao menos 1 cliente ou prospect por dia.'; return; }
@@ -641,7 +655,7 @@ def gerar_roteamento_html(df_area: pd.DataFrame, df_prospects: pd.DataFrame | No
           }
         } catch(e) {
           // Falha silenciosa: se a API não responder, roteiriza sem filtro
-          // em vez de bloquear o Jhony
+          // em vez de bloquear o vendedor
         }
       }
 
