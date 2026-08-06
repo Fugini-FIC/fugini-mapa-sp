@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Check-in Fugini</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+    }
+    .logo {
+      background: #D2001B;
+      color: white;
+      text-align: center;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 20px;
+      letter-spacing: 1px;
+    }
+    .badge-agendamento {
+      background: #ebf5fb;
+      color: #2874a6;
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      text-align: center;
+      margin-bottom: 12px;
+      display: none;
+    }
+    .badge-agendamento.visivel { display: block; }
+    .badge-erro-acesso {
+      background: #fdecea;
+      color: #c0392b;
+      font-size: 13px;
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+      margin-bottom: 12px;
+      display: none;
+    }
+    .badge-erro-acesso.visivel { display: block; }
+    label {
+      display: block;
+      font-size: 13px;
+      color: #555;
+      margin-bottom: 4px;
+      margin-top: 14px;
+    }
+    label.obrigatorio::after {
+      content: " *";
+      color: #D2001B;
+    }
+    input, select, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      font-size: 15px;
+      font-family: 'Segoe UI', sans-serif;
+    }
+    input:read-only {
+      background: #f9f9f9;
+      color: #888;
+    }
+    textarea { resize: vertical; min-height: 70px; }
+    .geo-status {
+      font-size: 12px;
+      color: #888;
+      margin-top: 6px;
+    }
+    .geo-status.ok  { color: #27ae60; }
+    .geo-status.err { color: #e74c3c; }
+    button.enviar {
+      width: 100%;
+      margin-top: 20px;
+      padding: 14px;
+      background: #D2001B;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button.enviar:disabled { background: #aaa; cursor: not-allowed; }
+    .btn-voltar {
+      width: 100%;
+      margin-top: 10px;
+      padding: 10px;
+      background: white;
+      color: #D2001B;
+      border: 1.5px solid #D2001B;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      text-decoration: none;
+      display: block;
+    }
+    .msg {
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      text-align: center;
+      display: none;
+    }
+    .msg.ok  { background: #eafaf1; color: #1e8449; display: block; }
+    .msg.err { background: #fdecea; color: #c0392b; display: block; }
+
+    .secao {
+      border-top: 1px solid #eee;
+      margin-top: 18px;
+      padding-top: 14px;
+    }
+    .secao-titulo {
+      font-size: 12px;
+      font-weight: 700;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .radio-grupo {
+      display: flex;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .radio-opcao {
+      flex: 1;
+      text-align: center;
+      padding: 10px 8px;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .radio-opcao.selecionado-sim {
+      background: #eafaf1;
+      border-color: #27ae60;
+      color: #1e8449;
+      font-weight: 600;
+    }
+    .radio-opcao.selecionado-nao {
+      background: #fdecea;
+      border-color: #e74c3c;
+      color: #c0392b;
+      font-weight: 600;
+    }
+    .bloco-condicional {
+      display: none;
+    }
+    .bloco-condicional.visivel {
+      display: block;
+    }
+
+    /* Modal reagendamento */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 200;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal-box {
+      background: white;
+      border-radius: 16px;
+      padding: 28px 24px 32px;
+      width: 100%;
+      max-width: 380px;
+    }
+    .modal-titulo {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a1a2e;
+      margin-bottom: 6px;
+    }
+    .modal-subtitulo {
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 20px;
+    }
+    .modal-label {
+      font-size: 13px;
+      color: #555;
+      margin-bottom: 6px;
+      display: block;
+    }
+    .modal-input {
+      width: 100%;
+      padding: 12px 14px;
+      border: 1.5px solid #ddd;
+      border-radius: 10px;
+      font-size: 15px;
+      font-family: 'Segoe UI', sans-serif;
+      outline: none;
+      margin-bottom: 20px;
+    }
+    .modal-input:focus { border-color: #3498db; }
+    .modal-botoes {
+      display: flex;
+      gap: 10px;
+    }
+    .modal-btn-cancelar {
+      flex: 1;
+      padding: 12px;
+      background: #f5f5f5;
+      color: #555;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 0;
+    }
+    .modal-btn-confirmar {
+      flex: 2;
+      padding: 12px;
+      background: #3498db;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 0;
+    }
+    .modal-btn-confirmar:disabled {
+      background: #aaa;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">FUGINI — CHECK-IN</div>
+
+  <div class="badge-erro-acesso" id="badge-erro-acesso">
+    ⚠️ Link inválido ou incompleto. Abra o check-in a partir do popup do mapa.
+  </div>
+
+  <div class="badge-agendamento" id="badge-agendamento">
+    📋 Check-in vinculado a agendamento
+  </div>
+
+  <label>Cód. Vendedor</label>
+  <input type="text" id="cod_vendedor" placeholder="Ex: SC01" readonly />
+
+  <label>Cód. Cliente</label>
+  <input type="text" id="cod_cliente" placeholder="Ex: 00001" />
+
+  <label>Nome Cliente</label>
+  <input type="text" id="nome_cliente" placeholder="Ex: Mercado Silva Ltda" />
+
+  <label>Status da Visita</label>
+  <select id="status_visita">
+    <option value="realizada">✅ Realizada</option>
+    <option value="reagendada">🔁 Reagendada</option>
+    <option value="fechado">🔒 Cliente fechado (fora do horário)</option>
+    <option value="ausente">❌ Comprador ausente</option>
+    <option value="inexistente">🚫 Empresa não existe mais</option>
+  </select>
+
+  <!-- ── Bloco condicional: aparece quando houve contato real ────── -->
+  <div class="bloco-condicional" id="bloco-estabelecimento">
+    <div class="secao">
+      <div class="secao-titulo">Sobre o estabelecimento</div>
+
+      <label class="obrigatorio">Tipo de estabelecimento</label>
+      <select id="tipo_estabelecimento">
+        <option value="">Selecione...</option>
+        <option value="supermercado">Supermercado</option>
+        <option value="mercearia">Mercearia</option>
+        <option value="emporio">Empório</option>
+        <option value="restaurante">Restaurante</option>
+        <option value="padaria">Padaria</option>
+        <option value="acougue">Açougue</option>
+        <option value="outro">Outro</option>
+      </select>
+      <input type="text" id="tipo_estabelecimento_outro" placeholder="Especifique o tipo..."
+        style="display:none; margin-top:8px;" />
+
+      <label class="obrigatorio">Nome do proprietário/gerente</label>
+      <input type="text" id="nome_contato" placeholder="Ex: João Silva" />
+    </div>
+
+    <div class="secao">
+      <div class="secao-titulo">Qualificação comercial</div>
+      <label class="obrigatorio" style="margin-top:0;">Esse estabelecimento já compra produtos Fugini?</label>
+      <div class="radio-grupo">
+        <div class="radio-opcao" id="opcao-sim" onclick="selecionarCompraFugini(true)">✅ Sim, compra</div>
+        <div class="radio-opcao" id="opcao-nao" onclick="selecionarCompraFugini(false)">❌ Não tem interesse</div>
+      </div>
+
+      <!-- Sub-bloco: já compra (via distribuidor) -->
+      <div class="bloco-condicional" id="bloco-ja-compra">
+        <label class="obrigatorio">De qual distribuidor/fornecedor compra?</label>
+        <input type="text" id="distribuidor_atual" placeholder="Ex: Distribuidora XYZ" />
+
+        <label class="obrigatorio">Volume estimado</label>
+        <input type="text" id="volume_estimado" placeholder="Ex: ~50 caixas/mês" />
+      </div>
+
+      <!-- Sub-bloco: não tem interesse -->
+      <div class="bloco-condicional" id="bloco-sem-interesse">
+        <label class="obrigatorio">Motivo</label>
+        <select id="motivo_sem_interesse">
+          <option value="">Selecione...</option>
+          <option value="atacado">Compra no atacado</option>
+          <option value="preco">Preços mais altos</option>
+          <option value="concorrente">Compra do concorrente</option>
+          <option value="fornecedor_fixo">Já tem fornecedor fixo</option>
+          <option value="outro">Outro</option>
+        </select>
+
+        <div class="bloco-condicional" id="bloco-detalhe-atacado">
+          <label class="obrigatorio">Quais produtos compra e a que custo?</label>
+          <textarea id="detalhe_atacado_produto" placeholder="Ex: Óleo de soja 900ml, R$ 6,50 na distribuidora..."></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <label class="obrigatorio">Observação</label>
+  <textarea id="observacao" placeholder="Descreva a visita..."></textarea>
+
+  <div class="geo-status" id="geo-status">Aguardando localização...</div>
+
+  <button class="enviar" id="btn-enviar" disabled>Registrar Check-in</button>
+  <a href="https://fugini-checkin-api.vercel.app/painel" class="btn-voltar">← Voltar ao Painel</a>
+  <div class="msg" id="msg"></div>
+</div>
+
+<!-- Modal reagendamento / fechado -->
+<div class="modal-overlay" id="modal-reagendamento" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-titulo" id="modal-titulo">🔁 Reagendar visita</div>
+    <div class="modal-subtitulo" id="modal-subtitulo">Escolha a nova data para a visita</div>
+    <label class="modal-label">Nova data</label>
+    <input type="date" id="modal-data-reagendamento" class="modal-input" />
+    <div class="modal-botoes">
+      <button class="modal-btn-cancelar" onclick="fecharModalReagendamento()">Cancelar</button>
+      <button class="modal-btn-confirmar" id="modal-btn-confirmar" onclick="confirmarReagendamento()">
+        Confirmar
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const API_BASE = 'https://fugini-checkin-api.vercel.app/api';
+  let lat = null, lng = null;
+  let agendamentoId = null;
+  let dadosCheckinPendente = null;
+  let mapaSenha = null;
+  let compraFuginiSelecionado = null; // true | false | null
+
+  const STATUS_COM_MODAL = ['reagendada', 'fechado'];
+
+  // Status em que o vendedor teve contato real com alguém no
+  // estabelecimento — só nesses casos os campos de qualificação
+  // fazem sentido e são obrigatórios.
+  const STATUS_COM_CONTATO = ['realizada', 'reagendada', 'fechado', 'ausente'];
+
+  const MODAL_CONFIG = {
+    reagendada: { titulo: '🔁 Reagendar visita',          label: 'Nova data' },
+    fechado:    { titulo: '🔒 Cliente fechado',            label: 'Tentar novamente em' },
+  };
+
+  (function preencherDaURL() {
+    const params = new URLSearchParams(window.location.search);
+    const cod        = params.get('cod_cliente');
+    const nome       = params.get('nome_cliente');
+    const agId       = params.get('agendamento_id');
+    const codVend    = params.get('cod_vendedor');
+    const senha      = params.get('mapa_senha');
+
+    if (cod) {
+      const el = document.getElementById('cod_cliente');
+      el.value = cod;
+      el.readOnly = true;
+    }
+    if (nome) {
+      const el = document.getElementById('nome_cliente');
+      el.value = decodeURIComponent(nome);
+      el.readOnly = true;
+    }
+    if (agId) {
+      agendamentoId = agId;
+      document.getElementById('badge-agendamento').classList.add('visivel');
+    }
+    if (codVend) {
+      document.getElementById('cod_vendedor').value = codVend;
+    }
+    if (senha) {
+      mapaSenha = senha;
+    }
+    if (!codVend || !senha) {
+      document.getElementById('badge-erro-acesso').classList.add('visivel');
+      document.getElementById('btn-enviar').disabled = true;
+      document.getElementById('btn-enviar').textContent = 'Link inválido';
+    }
+
+    var amanha = new Date();
+    amanha.setDate(amanha.getDate() + 1);
+    document.getElementById('modal-data-reagendamento').min = amanha.toISOString().split('T')[0];
+
+    atualizarBlocoEstabelecimento();
+  })();
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        lat = pos.coords.latitude;
+        lng = pos.coords.longitude;
+        document.getElementById('geo-status').textContent =
+          `📍 Localização capturada (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+        document.getElementById('geo-status').className = 'geo-status ok';
+        if (mapaSenha) {
+          document.getElementById('btn-enviar').disabled = false;
+        }
+      },
+      err => {
+        document.getElementById('geo-status').textContent =
+          '❌ Não foi possível obter localização. Verifique as permissões.';
+        document.getElementById('geo-status').className = 'geo-status err';
+      }
+    );
+  } else {
+    document.getElementById('geo-status').textContent =
+      '❌ Geolocalização não suportada neste dispositivo.';
+    document.getElementById('geo-status').className = 'geo-status err';
+  }
+
+  document.getElementById('status_visita').addEventListener('change', atualizarBlocoEstabelecimento);
+
+  function atualizarBlocoEstabelecimento() {
+    const status = document.getElementById('status_visita').value;
+    const bloco = document.getElementById('bloco-estabelecimento');
+    if (STATUS_COM_CONTATO.includes(status)) {
+      bloco.classList.add('visivel');
+    } else {
+      bloco.classList.remove('visivel');
+    }
+  }
+
+  document.getElementById('tipo_estabelecimento').addEventListener('change', function() {
+    const outroInput = document.getElementById('tipo_estabelecimento_outro');
+    outroInput.style.display = (this.value === 'outro') ? 'block' : 'none';
+  });
+
+  function selecionarCompraFugini(valor) {
+    compraFuginiSelecionado = valor;
+    document.getElementById('opcao-sim').classList.toggle('selecionado-sim', valor === true);
+    document.getElementById('opcao-nao').classList.toggle('selecionado-nao', valor === false);
+    document.getElementById('bloco-ja-compra').classList.toggle('visivel', valor === true);
+    document.getElementById('bloco-sem-interesse').classList.toggle('visivel', valor === false);
+  }
+
+  document.getElementById('motivo_sem_interesse').addEventListener('change', function() {
+    const mostraDetalhe = (this.value === 'atacado' || this.value === 'concorrente');
+    document.getElementById('bloco-detalhe-atacado').classList.toggle('visivel', mostraDetalhe);
+  });
+
+  function coletarDadosQualificacao() {
+    const status = document.getElementById('status_visita').value;
+    if (!STATUS_COM_CONTATO.includes(status)) {
+      return { valido: true, dados: {} };
+    }
+
+    let tipoEstab = document.getElementById('tipo_estabelecimento').value;
+    if (tipoEstab === 'outro') {
+      const outro = document.getElementById('tipo_estabelecimento_outro').value.trim();
+      if (!outro) return { valido: false, erro: 'Especifique o tipo de estabelecimento.' };
+      tipoEstab = outro;
+    }
+    if (!tipoEstab) return { valido: false, erro: 'Selecione o tipo de estabelecimento.' };
+
+    const nomeContato = document.getElementById('nome_contato').value.trim();
+    if (!nomeContato) return { valido: false, erro: 'Preencha o nome do proprietário/gerente.' };
+
+    if (compraFuginiSelecionado === null) {
+      return { valido: false, erro: 'Informe se o estabelecimento já compra produtos Fugini.' };
+    }
+
+    const dados = {
+      tipo_estabelecimento: tipoEstab,
+      nome_contato: nomeContato,
+      ja_compra_fugini: compraFuginiSelecionado,
+    };
+
+    if (compraFuginiSelecionado === true) {
+      const distribuidor = document.getElementById('distribuidor_atual').value.trim();
+      if (!distribuidor) return { valido: false, erro: 'Informe de qual distribuidor/fornecedor compra.' };
+      dados.distribuidor_atual = distribuidor;
+      const volume = document.getElementById('volume_estimado').value.trim();
+      if (!volume) return { valido: false, erro: 'Informe o volume estimado que o estabelecimento compra.' };
+      dados.volume_estimado = volume;
+    } else {
+      const motivo = document.getElementById('motivo_sem_interesse').value;
+      if (!motivo) return { valido: false, erro: 'Selecione o motivo da falta de interesse.' };
+      dados.motivo_sem_interesse = motivo;
+      if (motivo === 'atacado' || motivo === 'concorrente') {
+        const detalhe = document.getElementById('detalhe_atacado_produto').value.trim();
+        if (!detalhe) return { valido: false, erro: 'Informe quais produtos compra e a que custo.' };
+        dados.detalhe_atacado_produto = detalhe;
+      }
+    }
+
+    return { valido: true, dados };
+  }
+
+  function abrirModalReagendamento(dadosCheckin) {
+    dadosCheckinPendente = dadosCheckin;
+    var cfg = MODAL_CONFIG[dadosCheckin.status_visita] || MODAL_CONFIG['reagendada'];
+    document.getElementById('modal-titulo').textContent = cfg.titulo;
+    document.getElementById('modal-subtitulo').textContent =
+      cfg.label + ' para ' + dadosCheckin.nome_cliente;
+    document.getElementById('modal-data-reagendamento').value = '';
+    document.getElementById('modal-reagendamento').style.display = 'flex';
+  }
+
+  function fecharModalReagendamento() {
+    document.getElementById('modal-reagendamento').style.display = 'none';
+    dadosCheckinPendente = null;
+    document.getElementById('btn-enviar').disabled = false;
+    document.getElementById('btn-enviar').textContent = 'Registrar Check-in';
+  }
+
+  async function confirmarReagendamento() {
+    var novaData = document.getElementById('modal-data-reagendamento').value;
+    if (!novaData) {
+      alert('Selecione a nova data.');
+      return;
+    }
+    var btnConfirmar = document.getElementById('modal-btn-confirmar');
+    btnConfirmar.disabled = true;
+    btnConfirmar.textContent = 'Salvando...';
+    await finalizarCheckin(dadosCheckinPendente, novaData);
+    btnConfirmar.disabled = false;
+    btnConfirmar.textContent = 'Confirmar';
+    document.getElementById('modal-reagendamento').style.display = 'none';
+    dadosCheckinPendente = null;
+  }
+
+  async function finalizarCheckin(dados, novaDataReagendamento) {
+    const msg = document.getElementById('msg');
+    try {
+      const res = await fetch(`${API_BASE}/checkin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cod_vendedor:  dados.cod_vendedor,
+          cod_cliente:   dados.cod_cliente,
+          nome_cliente:  dados.nome_cliente,
+          lat_vendedor:  lat,
+          lng_vendedor:  lng,
+          status_visita: dados.status_visita,
+          observacao:    dados.observacao,
+          mapa_senha:    mapaSenha,
+          ...dados.qualificacao,
+        })
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Erro ao registrar check-in.');
+      }
+
+      const checkinData = await res.json();
+      const checkinId   = checkinData?.id || null;
+
+      let agendamentoAtualizado = false;
+      if (agendamentoId) {
+        try {
+          const patchRes = await fetch(`${API_BASE}/agendamentos?id=${agendamentoId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: dados.status_visita, checkin_id: checkinId })
+          });
+          agendamentoAtualizado = patchRes.ok;
+        } catch (e) {
+          console.warn('Falha ao atualizar agendamento:', e);
+        }
+      }
+
+      let novoAgendamentoCriado = false;
+      if (STATUS_COM_MODAL.includes(dados.status_visita) && novaDataReagendamento && agendamentoId) {
+        try {
+          const obsNova = dados.status_visita === 'fechado'
+            ? 'Retorno — cliente estava fechado'
+            : (dados.observacao || 'Reagendado');
+          const postRes = await fetch(`${API_BASE}/agendamentos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              cod_cliente:   dados.cod_cliente,
+              nome_cliente:  dados.nome_cliente,
+              cod_vendedor:  dados.cod_vendedor,
+              data_visita:   novaDataReagendamento,
+              observacao:    obsNova,
+              endereco:      dados.endereco || null,
+              ordem_roteiro: null
+            })
+          });
+          novoAgendamentoCriado = postRes.ok || postRes.status === 200;
+        } catch (e) {
+          console.warn('Falha ao criar novo agendamento:', e);
+        }
+      }
+
+      var linhas = ['✅ Check-in registrado!'];
+      if (agendamentoAtualizado) linhas.push('📋 Agendamento atualizado.');
+      if (novoAgendamentoCriado) {
+        var partes = novaDataReagendamento.split('-');
+        var acao = dados.status_visita === 'fechado' ? '🔒 Retorno agendado para' : '🔁 Nova visita criada para';
+        linhas.push(acao + ' ' + partes[2] + '/' + partes[1] + '/' + partes[0] + '.');
+      }
+      if (dados.status_visita === 'inexistente') {
+        linhas.push('🚫 Cliente marcado como inexistente.');
+      }
+
+      msg.className = 'msg ok';
+      msg.textContent = linhas.join(' ');
+
+      if (!document.getElementById('cod_cliente').readOnly)
+        document.getElementById('cod_cliente').value = '';
+      if (!document.getElementById('nome_cliente').readOnly)
+        document.getElementById('nome_cliente').value = '';
+      document.getElementById('observacao').value = '';
+
+    } catch(e) {
+      msg.className = 'msg err';
+      msg.textContent = '❌ ' + (e.message || 'Falha de conexão. Verifique sua internet.');
+    }
+
+    document.getElementById('btn-enviar').disabled = false;
+    document.getElementById('btn-enviar').textContent = 'Registrar Check-in';
+  }
+
+  document.getElementById('btn-enviar').addEventListener('click', async () => {
+    const cod_vendedor  = document.getElementById('cod_vendedor').value.trim();
+    const cod_cliente   = document.getElementById('cod_cliente').value.trim();
+    const nome_cliente  = document.getElementById('nome_cliente').value.trim();
+    const status_visita = document.getElementById('status_visita').value;
+    const observacao    = document.getElementById('observacao').value.trim();
+    const msg           = document.getElementById('msg');
+
+    if (!cod_vendedor || !mapaSenha) {
+      msg.className = 'msg err';
+      msg.textContent = 'Link inválido — abra o check-in a partir do popup do mapa.';
+      return;
+    }
+    if (!cod_cliente || !nome_cliente) {
+      msg.className = 'msg err';
+      msg.textContent = 'Preencha Cód. Cliente e Nome Cliente.';
+      return;
+    }
+    if (!observacao) {
+      msg.className = 'msg err';
+      msg.textContent = 'Observação é obrigatória.';
+      return;
+    }
+
+    const qualificacao = coletarDadosQualificacao();
+    if (!qualificacao.valido) {
+      msg.className = 'msg err';
+      msg.textContent = qualificacao.erro;
+      return;
+    }
+
+    document.getElementById('btn-enviar').disabled = true;
+    document.getElementById('btn-enviar').textContent = 'Enviando...';
+    msg.className = 'msg';
+
+    const dados = { cod_vendedor, cod_cliente, nome_cliente, status_visita, observacao, qualificacao: qualificacao.dados };
+
+    if (STATUS_COM_MODAL.includes(status_visita) && agendamentoId) {
+      abrirModalReagendamento(dados);
+      return;
+    }
+
+    await finalizarCheckin(dados, null);
+  });
+</script>
+</body>
+</html>
