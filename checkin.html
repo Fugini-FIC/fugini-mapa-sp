@@ -316,7 +316,7 @@
         <label class="obrigatorio">De qual distribuidor/fornecedor compra?</label>
         <input type="text" id="distribuidor_atual" placeholder="Ex: Distribuidora XYZ" />
 
-        <label>Volume estimado</label>
+        <label class="obrigatorio">Volume estimado</label>
         <input type="text" id="volume_estimado" placeholder="Ex: ~50 caixas/mês" />
       </div>
 
@@ -333,7 +333,7 @@
         </select>
 
         <div class="bloco-condicional" id="bloco-detalhe-atacado">
-          <label>Quais produtos compra e a que custo?</label>
+          <label class="obrigatorio">Quais produtos compra e a que custo?</label>
           <textarea id="detalhe_atacado_produto" placeholder="Ex: Óleo de soja 900ml, R$ 6,50 na distribuidora..."></textarea>
         </div>
       </div>
@@ -512,13 +512,17 @@
       const distribuidor = document.getElementById('distribuidor_atual').value.trim();
       if (!distribuidor) return { valido: false, erro: 'Informe de qual distribuidor/fornecedor compra.' };
       dados.distribuidor_atual = distribuidor;
-      dados.volume_estimado = document.getElementById('volume_estimado').value.trim() || null;
+      const volume = document.getElementById('volume_estimado').value.trim();
+      if (!volume) return { valido: false, erro: 'Informe o volume estimado que o estabelecimento compra.' };
+      dados.volume_estimado = volume;
     } else {
       const motivo = document.getElementById('motivo_sem_interesse').value;
       if (!motivo) return { valido: false, erro: 'Selecione o motivo da falta de interesse.' };
       dados.motivo_sem_interesse = motivo;
       if (motivo === 'atacado' || motivo === 'concorrente') {
-        dados.detalhe_atacado_produto = document.getElementById('detalhe_atacado_produto').value.trim() || null;
+        const detalhe = document.getElementById('detalhe_atacado_produto').value.trim();
+        if (!detalhe) return { valido: false, erro: 'Informe quais produtos compra e a que custo.' };
+        dados.detalhe_atacado_produto = detalhe;
       }
     }
 
