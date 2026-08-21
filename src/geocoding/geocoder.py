@@ -24,21 +24,27 @@ from src.database.connection import get_connection
 
 logger = logging.getLogger(__name__)
 
-# Bounding box da Grande São Paulo (RMSP)
+# Bounding box da carteira SP (RMSP + entorno)
 # Clientes com coordenada TOTVS fora dessa area sao tratados como invalidos
 # e regeocidificados pelo Google Maps API
-# Margem de seguranca para nao cortar cliente de borda dos municipios validados
-# (cobre de Vargem Grande Paulista/oeste ate Suzano-Mogi/leste,
-#  Mairipora/norte ate Sao Lourenco da Serra/sul)
+# Ampliado em 21/08/2026: as carteiras passaram a ter clientes fora da RMSP
+# (Taubate a leste, Boituva a oeste) — a caixa antiga os cortava do mapa.
 REGIAO_LAT_MIN = -24.3
-REGIAO_LAT_MAX = -22.9
-REGIAO_LNG_MIN = -47.3
-REGIAO_LNG_MAX = -45.8
+REGIAO_LAT_MAX = -22.6
+REGIAO_LNG_MIN = -48.0
+REGIAO_LNG_MAX = -45.4
+
+
+def _to_float(v) -> float:
+    """float() aceitando virgula decimal (formato que o TOTVS usa em parte das coordenadas)."""
+    if isinstance(v, str):
+        v = v.strip().replace(",", ".")
+    return float(v)
 
 
 def coordenada_valida(lat, lng) -> bool:
     try:
-        lat, lng = float(lat), float(lng)
+        lat, lng = _to_float(lat), _to_float(lng)
         return (
             pd.notna(lat) and pd.notna(lng)
             and lat != 0 and lng != 0
@@ -52,7 +58,7 @@ def coordenada_valida(lat, lng) -> bool:
 def coordenada_na_regiao(lat, lng) -> bool:
     """Verifica se a coordenada está dentro do bounding box da região de São Paulo."""
     try:
-        lat, lng = float(lat), float(lng)
+        lat, lng = _to_float(lat), _to_float(lng)
         return (
             REGIAO_LAT_MIN <= lat <= REGIAO_LAT_MAX
             and REGIAO_LNG_MIN <= lng <= REGIAO_LNG_MAX
@@ -238,14 +244,18 @@ def geocodificar(df: pd.DataFrame) -> pd.DataFrame:
         on="cod_cliente", how="left",
     )
 
+    # Coordenadas TOTVS podem vir com virgula decimal — normaliza antes de converter
+    def _serie_numerica(s: pd.Series) -> pd.Series:
+        return pd.to_numeric(s.astype(str).str.replace(",", ".", regex=False), errors="coerce")
+
     df["lat_final"] = np.where(
         df["geo_valida_totvs"],
-        pd.to_numeric(df["lat_totvs"], errors="coerce"),
+        _serie_numerica(df["lat_totvs"]),
         pd.to_numeric(df["lat_google"], errors="coerce"),
     )
     df["lng_final"] = np.where(
         df["geo_valida_totvs"],
-        pd.to_numeric(df["lng_totvs"], errors="coerce"),
+        _serie_numerica(df["lng_totvs"]),
         pd.to_numeric(df["lng_google"], errors="coerce"),
     )
     df["geo_valida_final"] = df["geo_valida_totvs"] | (df["valido"] == True)

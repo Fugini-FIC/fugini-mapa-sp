@@ -55,9 +55,13 @@ COD_ERC_SP = {
 
 def _normalizar(df: pd.DataFrame) -> pd.DataFrame:
     df = df.rename(columns=MAPEAMENTO)
-    for col in ["lat_totvs", "lng_totvs", "limite_disp"]:
+    for col in ["lat_totvs", "lng_totvs"]:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            # Coordenadas podem vir com virgula decimal no TOTVS — sem o replace
+            # o to_numeric vira NaN e o cliente cai do mapa a toa
+            df[col] = pd.to_numeric(df[col].str.replace(",", ".", regex=False), errors="coerce")
+    if "limite_disp" in df.columns:
+        df["limite_disp"] = pd.to_numeric(df["limite_disp"], errors="coerce")
     df["cod_ibge"]      = pd.to_numeric(df["cod_ibge"], errors="coerce")
     df["cod_cliente"]   = df["cod_cliente"].astype(str).str.strip()
     df["representante"] = df["representante"].fillna("").str.strip()
