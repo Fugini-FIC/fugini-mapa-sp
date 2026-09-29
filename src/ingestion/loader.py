@@ -1,7 +1,7 @@
 # ============================================================
 # src/ingestion/loader.py
 # Carrega clientes da carteira de São Paulo diretamente do
-# totvs_cliente.csv (\\192.168.0.226\pdi\in\full\), mesmo padrão
+# totvs_cliente.csv (caminho em TOTVS_CLIENTE_CSV no .env), mesmo padrão
 # usado no Projeto_19 (São Carlos) para o Jhony (cod-erc=6003).
 #
 # Cada vendedor de SP tem seu próprio cod-erc:

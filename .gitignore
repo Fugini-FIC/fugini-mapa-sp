@@ -1,9 +1,15 @@
-﻿__pycache__/
+# segredos
+.env
+config/.env
+
+# python
+__pycache__/
 *.pyc
 .venv/
+
+# gerados pelo pipeline
 data/output/
 data/input/
-pipeline.log
-config/.env
-.env 
-*.log 
+logs/
+*.log
+*.bak_*

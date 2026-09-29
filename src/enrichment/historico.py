@@ -7,17 +7,12 @@
 import logging
 import pandas as pd
 import psycopg2
+from config.settings import pg_params
 from datetime import date
 
 logger = logging.getLogger(__name__)
 
-PG_ERP = dict(
-    host="192.168.0.242",
-    port=5432,
-    dbname="fugini_dw",
-    user="postgres",
-    password="Postgres2025",
-)
+PG_ERP = pg_params("fugini_dw")
 
 # Limiar em dias para considerar cliente inativo
 DIAS_INATIVO = 60
