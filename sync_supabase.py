@@ -6,8 +6,7 @@ Popula também a carteira do Johnny (SC01) com os clientes disponíveis.
 Roda via Task Scheduler ou manualmente:
     python sync_supabase.py
 
-Coloque na pasta:
-    C:\\Users\\accrisci\\Desktop\\Artur\\Projetos\\Projeto_19_Mapa_Clientes_Sao_Carlos\\
+Roda na pasta do projeto (lê config/settings.py e o .env da raiz).
 """
 
 import logging
@@ -36,12 +35,10 @@ logger = logging.getLogger(__name__)
 
 # ── Configurações ──────────────────────────────────────────────────────────────
 
-TOTVS_CSV = r"\\192.168.0.226\pdi\in\full\totvs_cliente.csv"
+from config.settings import TOTVS_CLIENTE_CSV as TOTVS_CSV, pg_params
 
-PG_MAPA = dict(host="192.168.0.242", port=5432, dbname="mapa_clientes",
-               user="postgres", password="Postgres2025")
-PG_ERP  = dict(host="192.168.0.242", port=5432, dbname="erp_progress",
-               user="postgres", password="Postgres2025")
+PG_MAPA = pg_params("mapa_clientes")
+PG_ERP  = pg_params("erp_progress")
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://pyiybinbsnouxdtnfcpe.supabase.co")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")

@@ -30,15 +30,9 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # CONFIGURAÇÕES
 # ============================================================
-from config.settings import GOOGLE_API_KEY
+from config.settings import GOOGLE_API_KEY, pg_params
 
-PG_MAPA = dict(
-    host="192.168.0.242",
-    port=5432,
-    dbname="mapa_clientes",
-    user="postgres",
-    password="Postgres2025",
-)
+PG_MAPA = pg_params("mapa_clientes")
 
 MUNICIPIOS_SC = ['SAO CARLOS', 'ARARAQUARA', 'IBATE', 'ITIRAPINA', 'SÃO CARLOS']
 CAPITAL_MINIMO        = 10_000
